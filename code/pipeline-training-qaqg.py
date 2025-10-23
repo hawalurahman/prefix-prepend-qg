@@ -4,20 +4,20 @@
 # In[ ]:
 
 
-get_ipython().system('pip install nltk -q')
-get_ipython().system('pip install transformers -q')
-get_ipython().system('pip install datasets -q')
-get_ipython().system('pip install evaluate -q')
-get_ipython().system('pip install rouge_score -q')
-get_ipython().system('pip install sentencepiece -q')
-get_ipython().system('pip install transformers[torch] -q')
+# get_ipython().system('pip install nltk -q')
+# get_ipython().system('pip install transformers -q')
+# get_ipython().system('pip install datasets -q')
+# get_ipython().system('pip install evaluate -q')
+# get_ipython().system('pip install rouge_score -q')
+# get_ipython().system('pip install sentencepiece -q')
+# get_ipython().system('pip install transformers[torch] -q')
 
 
 # In[ ]:
 
 
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+# import os
+# os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 
 # In[ ]:
@@ -30,12 +30,13 @@ import numpy as np
 from transformers import T5Tokenizer, T5Model
 import nltk, evaluate
 from nltk import sent_tokenize
+from sklearn.model_selection import train_test_split
 from transformers import AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, Seq2SeqTrainingArguments, Seq2SeqTrainer
 
 nltk.download("punkt", quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
-def data_preparation(data):
+def data_preparation_old(data):
     data_qa = []
     data_qg = []
 
@@ -155,49 +156,47 @@ def get_context_hl_question(cqa):
             sentence_idx_start = sentence_idx_end
     return hasil
 
-def data_preparation_v2(data):
-    '''idt5-base-qaqg'''
+def data_preparation_v1(data):
+    '''idt5-base-qaqg-v1'''
     data_qa = get_context_answers(data)
     data_qg = get_context_question(data)
 
     return data_qa, data_qg
 
-def data_preparation_v3(data):
+def data_preparation_v2(data):
     '''idt5-base-qaqg-v2'''
     data_qa = get_sentence_answers(data)
     data_qg = get_context_question(data)
 
     return data_qa, data_qg
 
-def data_preparation_v4(data):
+def data_preparation_v3(data):
     '''idt5-base-qaqg-v3'''
     data_qa = get_context_answers(data)
     data_qg = get_context_hl_question(data)
 
     return data_qa, data_qg
 
-def data_preparation_v5(data):
+def data_preparation_v4(data):
     '''idt5-base-qaqg-v4'''
     data_qa = get_sentence_answers(data)
     data_qg = get_context_question2(data)
 
     return data_qa, data_qg
 
-def data_split(data_qa, data_qg, size):  # split data 80:20 for training testing from single data with given size
+def data_split(data_qa, data_qg, size, seed=42):
     qa_data = data_qa[:size]
     qg_data = data_qg[:size]
     print(len(data_qa), len(data_qg))
-    # Assuming 'data' is your dataset
-    qa_train_set, qa_test_set = np.split(qa_data, [int(0.80 * len(qa_data))])
-    qg_train_set, qg_test_set = np.split(qg_data, [int(0.80 * len(qg_data))])
 
-    # Combine training sets
-    train_set = np.concatenate((qa_train_set, qg_train_set))
-    # Combine testing sets
-    test_set = np.concatenate((qa_test_set, qg_test_set))
+    qa_train, qa_test = train_test_split(qa_data, test_size=0.2, random_state=seed, shuffle=True)
+    qg_train, qg_test = train_test_split(qg_data, test_size=0.2, random_state=seed, shuffle=True)
 
-    train_set = Dataset.from_pandas(pd.DataFrame.from_dict(data=list(train_set), orient='columns'))
-    test_set = Dataset.from_pandas(pd.DataFrame.from_dict(data=list(test_set), orient='columns'))
+    train_set = qa_train + qg_train
+    test_set = qa_test + qg_test
+
+    train_set = Dataset.from_pandas(pd.DataFrame(list(train_set)))
+    test_set = Dataset.from_pandas(pd.DataFrame(list(test_set)))
 
     print(train_set)
     print(test_set)
@@ -233,32 +232,31 @@ def init_evaluation():
     return rouge, bleu
 
 def compute_metrics(eval_preds):
-    preds, labels = eval_preds
+    preds = eval_preds.predictions
+    labels = eval_preds.label_ids
 
     # decode preds and labels
     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
+
     decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-    # rougeLSum expects newline after each sentence
+    
     decoded_preds = ["\n".join(nltk.sent_tokenize(pred.strip())) for pred in decoded_preds]
     decoded_labels = ["\n".join(nltk.sent_tokenize(label.strip())) for label in decoded_labels]
 
-    # Compute ROUGE scores
     rouge_result = rouge.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
-
-    # Compute BLEU score
     bleu_result = bleu.compute(predictions=decoded_preds, references=decoded_labels)
-
-    # Return both ROUGE and BLEU scores
-    result = {
+    
+    return {
         'rouge1': rouge_result['rouge1'],
         'rouge2': rouge_result['rouge2'],
         'rougeL': rouge_result['rougeL'],
         'rougeLsum': rouge_result['rougeLsum'],
-        "bleu": bleu_result["bleu"],  # Access the BLEU score from the result dictionary
+        "bleu": bleu_result["bleu"],
+        'rouge_all': rouge_result,
+        'bleu_all': bleu_result,
     }
-    return result
 
 def init_model(model_checkpoint):
     model = AutoModelForSeq2SeqLM.from_pretrained(model_checkpoint)
@@ -268,75 +266,95 @@ def init_model(model_checkpoint):
     return model
 
 
-# In[ ]:
+if __name__ == '__main__':
+    
+    import json
+    from huggingface_hub import login
+    from dotenv import load_dotenv
+    import os
+    import argparse
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scenario", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--size", type=int, default=30000)
 
-import json
+    args = parser.parse_args()
 
-with open('squad_id_possible.json') as f:
-    data = json.load(f)
+    print(f"processing scenario {args.scenario} with {args.seed} seed and {args.size} data")
 
+    load_dotenv()
 
-# In[ ]:
+    # Automatically log in to Hugging Face using the retrieved token
+    login(token=os.getenv("HF_LOGIN"))
 
+    with open('data/squad_id_possible.json') as f:
+        data = json.load(f)
+    print("data loaded")
 
-from huggingface_hub import login
+    model_checkpoint = 'muchad/idt5-base'
+    kode_simpan = f'qaqg-v{args.scenario}.{args.seed}-SQuAD-id'
 
-# Automatically log in to Hugging Face using the retrieved token
-login(token='')
+    match args.scenario:
+        case 1:
+            data_qa_qg = data_preparation_v1(data)
+        case 2: 
+            data_qa_qg = data_preparation_v2(data)
+        case 3: 
+            data_qa_qg = data_preparation_v3(data)
+        case 4:
+            data_qa_qg = data_preparation_v4(data)
 
+    print("data prepped")
 
-# In[ ]:
+    data_train_test = data_split(data_qa_qg[0], data_qa_qg[1], size=args.size, seed=args.seed)
 
+    print("data splitted")
 
-model_checkpoint = 'muchad/idt5-base'
-kode_simpan = 'qaqg_v1-1'
+    tokenizer = init_tokenizer(model_checkpoint)
+    model = init_model(model_checkpoint)
 
-data = data
-data_qa_qg = data_preparation_v2(data)
-data_train_test = data_split(data_qa_qg[0], data_qa_qg[1], 30000)
-tokenizer = init_tokenizer(model_checkpoint)
-model = init_model(model_checkpoint)
+    print("model and tokenizer loaded")
 
-preprocessed_train_data = data_train_test[0].map(preprocess_function, batched=True)
-preprocessed_test_data = data_train_test[1].map(preprocess_function, batched=True)
+    preprocessed_train_data = data_train_test[0].map(preprocess_function, batched=True)
+    preprocessed_test_data = data_train_test[1].map(preprocess_function, batched=True)
 
-tokenized_datasets = {'train': preprocessed_train_data, 'test': preprocessed_test_data}
+    tokenized_datasets = {'train': preprocessed_train_data, 'test': preprocessed_test_data}
 
-data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
+    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
 
-rouge, bleu = init_evaluation()
+    rouge, bleu = init_evaluation()
 
-batch_size = 8
-model_name = model_checkpoint.split("/")[-1]
-args = Seq2SeqTrainingArguments(
-    f"{model_name}-{kode_simpan}",
-    overwrite_output_dir = True,
-    evaluation_strategy = "epoch",
-    save_strategy= "epoch", 
-    learning_rate=1e-4,
-    per_device_train_batch_size=batch_size,
-    per_device_eval_batch_size=batch_size,
-#     weight_decay=0.01,
-    save_total_limit=1,
-    num_train_epochs=5,
-    predict_with_generate=True,
-    push_to_hub=False,
-    load_best_model_at_end = True,
-    use_cpu=False,
-    report_to="none",
-)
+    batch_size = 4
+    model_name = model_checkpoint.split("/")[-1]
+    args = Seq2SeqTrainingArguments(
+        f"{model_name}-{kode_simpan}",
+        overwrite_output_dir = True,
+        eval_strategy = "epoch",
+        save_strategy= "epoch", 
+        learning_rate=1e-4,
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
+        # weight_decay=0.01,
+        save_total_limit=1,
+        num_train_epochs=5,
+        predict_with_generate=True,
+        push_to_hub=True,
+        load_best_model_at_end = False,
+        use_cpu=False,
+        report_to="none",
+    )
 
-trainer = Seq2SeqTrainer(
-    model=model,
-    args=args,
-    train_dataset=tokenized_datasets["train"],
-    eval_dataset=tokenized_datasets["test"],
-    tokenizer=tokenizer,
-    data_collator=data_collator,
-    compute_metrics=compute_metrics
-)
+    trainer = Seq2SeqTrainer(
+        model=model,
+        args=args,
+        train_dataset=tokenized_datasets["train"],
+        eval_dataset=tokenized_datasets["test"],
+        processing_class=tokenizer,
+        data_collator=data_collator,
+        compute_metrics=compute_metrics
+    )
 
-trainer.train()
-trainer.push_to_hub()
+    trainer.train()
+    trainer.push_to_hub()
 
