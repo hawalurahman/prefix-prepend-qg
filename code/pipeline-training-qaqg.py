@@ -69,6 +69,30 @@ def get_context_answers(cqa):
 
     return hasil
 
+def get_noprefix_noprepend_answers(cqa):
+    '''Untuk Answer Extraction. No prefix, no prepend.'''
+    hasil = []
+    prefix = ""
+    for item in cqa:
+        context = prefix+item['context']
+        # answers = " [SEP] ".join([qa['answer'] for qa in item['qa']])
+        answers = " [SEP] ".join([qa['answer'] for qa in item['qa']]) # usng default eos token for separator doesnt work
+        hasil.append({'context': context, 'target': answers})
+
+    return hasil
+
+def get_yesprefix_noprepend_answers(cqa):
+    '''Untuk Answer Extraction. yes prefix, no prepend.'''
+    hasil = []
+    prefix = "extract answers: "
+    for item in cqa:
+        context = prefix+item['context']
+        # answers = " [SEP] ".join([qa['answer'] for qa in item['qa']])
+        answers = " [SEP] ".join([qa['answer'] for qa in item['qa']]) # usng default eos token for separator doesnt work
+        hasil.append({'context': context, 'target': answers})
+
+    return hasil
+
 def get_context_question(cqa):
     hasil = []
     prefix = "generate questions: "
@@ -80,6 +104,34 @@ def get_context_question(cqa):
             answer = qa['answer']
             # hasil.append({'context': prefix+context+" [SEP] "+answer, 'target': question})
             hasil.append({'context': prefix+context+" [SEP] "+answer, 'target': question}) # using default eos token for separator
+
+    return hasil
+
+def get_noprefix_noprepend_question(cqa):
+    '''For question generation, no prefix, no prepend.'''
+
+    hasil = []
+    prefix = ""
+
+    for item in cqa:
+        context = item['context']
+        for qa in item['qa']:
+            question = qa['question']
+            hasil.append({'context': prefix+context, 'target': question}) # no prepend answer so no [SEP] + answer
+
+    return hasil
+
+def get_yesprefix_noprepend_question(cqa):
+    '''For question generation, yes prefix, no prepend.'''
+
+    hasil = []
+    prefix = "generate questions: "
+
+    for item in cqa:
+        context = item['context']
+        for qa in item['qa']:
+            question = qa['question']
+            hasil.append({'context': prefix+context, 'target': question}) # no prepend answer so no [SEP] + answer
 
     return hasil
 
@@ -184,13 +236,89 @@ def data_preparation_v4(data):
 
     return data_qa, data_qg
 
+# ======================== FOR ABLATION STUDY ========================
+
+# SINGLE TASK NO PREFIX - NO PREPEND
+
+def data_preparation_qg_noprefix_noprepend(data):
+    '''single-task no prefix no prepend QG'''
+    data_qa = []
+    data_qg = get_noprefix_noprepend_question(data)
+
+    return data_qa, data_qg
+
+def data_preparation_qa_noprefix_noprepend(data):
+    '''single-task no prefix no prepend Answer Extraction'''
+    data_qa = get_noprefix_noprepend_answers(data)
+    data_qg = []
+
+    return data_qa, data_qg
+
+# SINGLE TASK YES PREFIX - NO PREPEND
+
+def data_preparation_qg_yesprefix_noprepend(data):
+    '''single-task yes prefix no prepend QG'''
+    data_qa = []
+    data_qg = get_yesprefix_noprepend_question(data)
+
+    return data_qa, data_qg
+
+def data_preparation_qa_yesprefix_noprepend(data):
+    '''single-task yes prefix no prepend Answer Extraction'''
+    data_qa = get_yesprefix_noprepend_answers(data)
+    data_qg = []
+
+    return data_qa, data_qg
+
+# SINGLE TASK YES PREFIX - YES PREPEND
+
+def data_preparation_qg_yesprefix_yesprepend(data):
+    '''single-task yes prefix yes prepend QG'''
+    data_qa = []
+    data_qg = get_context_question(data)
+
+    return data_qa, data_qg
+
+def data_preparation_qa_yesprefix_yesprepend(data):
+    '''single-task yes prefix no prepend Answer Extraction'''
+    data_qa = get_context_answers(data)
+    data_qg = []
+
+    return data_qa, data_qg
+
+# MULTI TASK NO PREFIX - NO PREPEND
+
+def data_preparation_qaqg_noprefix_noprepend(data):
+    '''multi-task no prefix no prepend QG'''
+    data_qa = get_noprefix_noprepend_answers(data)
+    data_qg = get_noprefix_noprepend_question(data)
+
+    return data_qa, data_qg
+
+# MULTITASK YES PREFIX - NO PREPEND
+
+def data_preparation_qaqg_yesprefix_noprepend(data):
+    '''multi-task yes prefix no prepend QG'''
+    data_qa = get_yesprefix_noprepend_answers(data)
+    data_qg = get_yesprefix_noprepend_question(data)
+
+    return data_qa, data_qg
+
+
 def data_split(data_qa, data_qg, size, seed=42):
     qa_data = data_qa[:size]
     qg_data = data_qg[:size]
-    print(len(data_qa), len(data_qg))
+    print("THIS IS THE SIZE OF YOUR DATA:", len(data_qa), len(data_qg))
 
-    qa_train, qa_test = train_test_split(qa_data, test_size=0.2, random_state=seed, shuffle=True)
-    qg_train, qg_test = train_test_split(qg_data, test_size=0.2, random_state=seed, shuffle=True)
+    if len(qa_data) != 0:
+        qa_train, qa_test = train_test_split(qa_data, test_size=0.2, random_state=seed, shuffle=True)
+    else:
+        qa_train, qa_test = [], []
+    
+    if len(qg_data) != 0:
+        qg_train, qg_test = train_test_split(qg_data, test_size=0.2, random_state=seed, shuffle=True)   
+    else:
+        qg_train, qg_test = [], []
 
     train_set = qa_train + qg_train
     test_set = qa_test + qg_test
@@ -304,6 +432,32 @@ if __name__ == '__main__':
             data_qa_qg = data_preparation_v3(data)
         case 4:
             data_qa_qg = data_preparation_v4(data)
+        case 5: # answer extraction only no prefix no prepend
+            data_qa_qg = data_preparation_qa_noprefix_noprepend(data)
+            kode_simpan = f'qaqg-ae-noprefix-noprepend.{args.seed}-SQuAD-id'
+        case 6: # question generation only no prefix no prepend
+            data_qa_qg = data_preparation_qg_noprefix_noprepend(data)
+            kode_simpan = f'qaqg-qg-noprefix-noprepend.{args.seed}-SQuAD-id'
+        case 7: # answer extraction only yes prefix no prepend
+            data_qa_qg = data_preparation_qa_yesprefix_noprepend(data)
+            kode_simpan = f'qaqg-ae-yesprefix-noprepend.{args.seed}-SQuAD-id'
+        case 8: # question generation only yes prefix no prepend
+            data_qa_qg = data_preparation_qg_yesprefix_noprepend(data)
+            kode_simpan = f'qaqg-qg-yesprefix-noprepend.{args.seed}-SQuAD-id'
+        case 9: # answer extraction only yes prefix yes prepend
+            data_qa_qg = data_preparation_qa_yesprefix_yesprepend(data)
+            kode_simpan = f'qaqg-ae-yesprefix-yesprepend.{args.seed}-SQuAD-id'
+        case 10: # question generation only yes prefix yes prepend
+            data_qa_qg = data_preparation_qg_yesprefix_yesprepend(data)
+            kode_simpan = f'qaqg-qg-yesprefix-yesprepend.{args.seed}-SQuAD-id'
+        case 11: # multi task no prefix no prepend
+            data_qa_qg = data_preparation_qaqg_noprefix_noprepend(data)
+            kode_simpan = f'qaqg-noprefix-noprepend.{args.seed}-SQuAD-id'
+        case 12: # multi task yes prefix no prepend
+            data_qa_qg = data_preparation_qaqg_yesprefix_noprepend(data)
+            kode_simpan = f'qaqg-yesprefix-noprepend.{args.seed}-SQuAD-id'
+        case _:
+            print("scenario not found")        
 
     print("data prepped")
 
@@ -339,9 +493,9 @@ if __name__ == '__main__':
         save_total_limit=1,
         num_train_epochs=5,
         predict_with_generate=True,
-        push_to_hub=True,
+        push_to_hub= False,
         load_best_model_at_end = False,
-        use_cpu=False,
+        use_cpu= False,
         report_to="none",
     )
 
@@ -356,5 +510,5 @@ if __name__ == '__main__':
     )
 
     trainer.train()
-    trainer.push_to_hub()
+    # trainer.push_to_hub()
 

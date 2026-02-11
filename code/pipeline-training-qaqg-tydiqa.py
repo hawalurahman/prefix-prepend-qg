@@ -78,6 +78,17 @@ def get_sentence_answer_tydiqa(data):
             sentence_idx_start = sentence_idx_end
         data_qa.append({'context': f"extract answer: {target_sentence}", 'target': answers })
     return data_qa
+
+def get_context_answer_noprefix_noprepend(data):
+    ''' 
+    generate data for answer extraction without prefix-prepend method 
+    '''
+    data_qa = []
+    for i, each in enumerate(data):
+        answers = each['answer']
+        context = each['context']
+        data_qa.append({'context': context, 'target': answers})
+    return data_qa
     
 # =================================================================================================================
 # membuat data untuk question generation
@@ -113,16 +124,50 @@ def get_question_baseline_tydiqa(data):
         data_qg.append({'context': context_new, 'target': question})
     return data_qg
 
+def get_context_question_noprefix_noprepend(data):
+    """
+    generate data for question generation without prefix-prepend method
+    """
+    data_qg = []
+    for i, each in enumerate(data):
+        answer = each['answer']
+        context = f"{each['context']}"
+        question = each['question']
+            
+        data_qg.append({'context': context, 'target': question})
+    return data_qg
+
+def get_context_question_yesprefix_noprepend(data):
+    """
+    generate data for question generation with prefix-prepend method
+    context = prefix+context [SEP] answer --> question = question
+    """
+    data_qg = []
+    for i, each in enumerate(data):
+        answer = each['answer']
+        context = f"generate question: {each['context']}"
+        question = each['question']
+            
+        data_qg.append({'context': context, 'target': question})
+    return data_qg
+
 def data_split(data_qa, data_qg, size, seed=42):
     """
     split the data into train and test set
     """
     qa_data = data_qa[:size]
     qg_data = data_qg[:size]
-    print(len(data_qa), len(data_qg))
+    print("THIS IS THE SIZE OF YOUR DATA:", len(data_qa), len(data_qg))
 
-    qa_train, qa_test = train_test_split(qa_data, test_size=0.2, random_state=seed, shuffle=True)
-    qg_train, qg_test = train_test_split(qg_data, test_size=0.2, random_state=seed, shuffle=True)
+    if len(qa_data) != 0:
+        qa_train, qa_test = train_test_split(qa_data, test_size=0.2, random_state=seed, shuffle=True)
+    else:
+        qa_train, qa_test = [], []
+    
+    if len(qg_data) != 0:
+        qg_train, qg_test = train_test_split(qg_data, test_size=0.2, random_state=seed, shuffle=True)   
+    else:
+        qg_train, qg_test = [], []
 
     train_set = qa_train + qg_train
     test_set = qa_test + qg_test
@@ -130,8 +175,8 @@ def data_split(data_qa, data_qg, size, seed=42):
     train_set = Dataset.from_pandas(pd.DataFrame(list(train_set)))
     test_set = Dataset.from_pandas(pd.DataFrame(list(test_set)))
 
-    print(train_set)
-    print(test_set)
+    print("TRAIN SET", train_set)
+    print("TEST SET", test_set)
 
     return train_set, test_set
 
@@ -173,6 +218,36 @@ if __name__ == "__main__":
         case 0:
             data_qa = get_answer_baseline_tydiqa(data)
             data_qg = get_question_baseline_tydiqa(data)
+        case 3:
+            data_qa = get_context_answer_noprefix_noprepend(data)
+            data_qg = []
+            kode_simpan = f'qaqg-ae-noprefix-noprepend.{args.seed}-TydiQA-id'
+        case 4:
+            data_qa = []
+            data_qg = get_context_question_noprefix_noprepend(data)
+            kode_simpan = f'qaqg-qg-noprefix-noprepend.{args.seed}-TydiQA-id'
+        case 5:
+            data_qa = get_context_answer_tydiqa(data)
+            data_qg = []
+            kode_simpan = f'qaqg-ae-yesprefix-noprepend.{args.seed}-TydiQA-id'
+        case 6:
+            data_qa = []
+            data_qg = get_context_question_yesprefix_noprepend(data)
+            kode_simpan = f'qaqg-qg-yesprefix-noprepend.{args.seed}-TydiQA-id'
+        case 7:
+            data_qa = []
+            data_qg = get_context_question_tydiqa(data)
+            kode_simpan = f'qaqg-qg-yesprefix-yesprepend.{args.seed}-TydiQA-id'
+        case 8:
+            data_qa = get_context_answer_noprefix_noprepend(data)
+            data_qg = get_context_question_noprefix_noprepend(data)
+            kode_simpan = f'qaqg-noprefix-noprepend.{args.seed}-TydiQA-id'
+        case 9:
+            data_qa = get_context_answer_tydiqa(data)
+            data_qg = get_context_question_yesprefix_noprepend(data)
+            kode_simpan = f'qaqg-yesprefix-noprepend.{args.seed}-TydiQA-id'
+        case _:
+            print("Scenario not found")
     
 
     #only take this amount of data (squad is too big to train)
@@ -186,8 +261,8 @@ if __name__ == "__main__":
     train_set = Dataset.from_pandas(pd.DataFrame.from_dict(data=list(train_set), orient='columns'))
     test_set = Dataset.from_pandas(pd.DataFrame.from_dict(data=list(test_set), orient='columns'))
 
-    print(train_set)
-    print(test_set)
+    # print(train_set)
+    # print(test_set)
 
     # load the tokenizer and model
     model_checkpoint = 'muchad/idt5-base'
@@ -264,7 +339,7 @@ if __name__ == "__main__":
         save_total_limit=1,
         num_train_epochs=5,
         predict_with_generate=True,
-        push_to_hub=True,
+        push_to_hub=False,
         load_best_model_at_end = False,
         use_cpu=False,
         report_to="none",
@@ -282,4 +357,4 @@ if __name__ == "__main__":
 
     # train the model
     trainer.train()
-    trainer.push_to_hub()
+    # trainer.push_to_hub()

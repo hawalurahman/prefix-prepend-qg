@@ -211,3 +211,6 @@ __marimo__/
 # unimportant files and folders
 idt5*
 log*
+
+# inference results
+inference-results/*.jsonl
